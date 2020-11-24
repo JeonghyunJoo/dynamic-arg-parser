@@ -5,6 +5,7 @@ Created on Nov 13, 2020
 '''
 import argparse
 import yaml
+import sys
 
 def bool_converter(s):
     if isinstance(s, str):
@@ -105,13 +106,11 @@ class DynamicArgumentParser():
         else:
             raise Exception(f"Can not handle the conversion of the type {type(v)}")
 
-    def __init__(self, baseparser = None, check_type_consistency = True):
+    def __init__(self, staticparser = None, check_type_consistency = True):
         # - check_type_consistency : Check whether a data type is matched for the same argument
         super(DynamicArgumentParser, self).__init__()
-        if baseparser is None:
-            self.baseparser =  argparse.ArgumentParser()
-        else:
-             self.baseparser = baseparser
+        
+        self.staticparser = staticparser
         self.arg_dict = {} # Key: arg name, Value: (arg value #converted python data, arg type #string, terminal type)
         self.check_type_consistency = check_type_consistency
     
@@ -194,20 +193,32 @@ class DynamicArgumentParser():
         self.update(arg_dict, add_mode == 'o')
         
     
-    def parse_cmd_line_args(self, cmd_line_args = None, add_mode = ['o', 'a', 'n'][0]):
+    def static_parse_cmd_args(self, args = None, add_mode = ['o', 'a', 'n'][0]):
         if add_mode == 'n':
             self.arg_dict = {}
         
-        base_args, arguments_yet_to_be_parsed = self.baseparser.parse_known_args(cmd_line_args)
-        arg_dict = DynamicArgumentParser.dict_to_arg_dict(base_args.__dict__, arg_dict = {})
-        argname = None
-        argvalue = []
+        if args is None:
+            args = _sys.argv[1:]
         
-        self.update(arg_dict, add_mode == 'o')
+        if self.staticparser is not None:
+            static_args, args = self.staticparser.parse_known_args(args)
+            arg_dict = DynamicArgumentParser.dict_to_arg_dict(static_args.__dict__, arg_dict = {})
+            self.update(arg_dict, add_mode == 'o')
+        
+        return args
+            
+    
+    def dynamic_parse_cmd_args(self, args = None, add_mode = ['o', 'a', 'n'][0]):
+        if add_mode == 'n':
+            self.arg_dict = {}
+        
+        if args is None:
+            args = _sys.argv[1:]
         
         arg_dict = {}
         
-        for arg in arguments_yet_to_be_parsed + ["-"]: #Append a dummy argument to make the logic simple
+        argname = None
+        for arg in args + ["-"]: #Append a dummy argument to make the logic simple
             if arg.startswith(("-", "--")):
                 if argname is not None:
                     v = None
@@ -218,13 +229,7 @@ class DynamicArgumentParser():
                         v, typ = self._convert(argvalue[0])
                     elif len(argvalue) > 1:
                         v, typ = self._convert(argvalue)
-                        #, typ = self._convert(argvalue[0])
-                        # = [v for v, _ in map(self._convert, argvalue)]
-                    
-                    #if self.check_type_consistency:
-                    #if add_mode == 'o' or argname not in self.arg_dict:
-                    
-                    
+                        
                     lastindex = 0
                     while True:
                         lastindex = argname.find('.', lastindex)
@@ -241,6 +246,27 @@ class DynamicArgumentParser():
         
         self.update(arg_dict, add_mode == 'o')
 
+    def parse_argument(self, args = None, cfgfile_arg = ''):
+        if args is None:
+            args = _sys.argv[1:]
+        
+        #renew old parsing results and parse command line arguments with a static parser 
+        args_yet_to_be_parsed = self.static_parse_cmd_args(args, add_mode = 'n')
+        
+        #handle arguments unrecognized by the static parser
+        self.dynamic_parse_cmd_args(args_yet_to_be_parsed, add_mode = 'a')
+        
+        if cfgfile_arg is not '' and cfgfile_arg in self.arg_dict:
+            cfg_filepath = self.arg_dict.get(cfgfile_arg)
+            
+            if os.path.exists(cfg_filePath):
+                #Load arguments from the configuration file
+                self.parse_config_file(cfg_filepath, 'a') #'a' is No-Overwrite mode. CMD-line args has a priority
+    
+        args_namespace = argdict_to_namespace(self.arg_dict)
+    
+        return args_namespace
+    
 from types import SimpleNamespace
 
 class Namespace(SimpleNamespace):
@@ -314,35 +340,6 @@ class Wrapper():
     
     def __str__(self):
         return str(self.instance_)
-
-def parse_argument(staticparser = None, cfg_file_argname = None, cmd_line_args = None):
-    cfg_filepath = None
-     
-    rem_cmd_line_args = cmd_line_args
-    if cfg_file_argname is not None:
-        #the configuration file path parser
-        cfg_filepath_parser = argparse.ArgumentParser()
-        cfg_filepath_parser.add_argument("-"+cfg_file_argname, "--"+cfg_file_argname, type=str, required = True)
-        cfg_filepath_args, rem_cmd_line_args = cfg_filepath_parser.parse_known_args(cmd_line_args)
-        #Read the configuration file path
-        cfg_filepath = vars(cfg_filepath_args)[cfg_file_argname]
-     
-    #Create a parser instance
-    dynamicparser = DynamicArgumentParser(staticparser)
-
-    #Parse command-line arguments
-    dynamicparser.parse_cmd_line_args(rem_cmd_line_args)
-    
-    if cfg_filepath is not None:
-        #Load arguments from the configuration file
-        dynamicparser.parse_config_file(cfg_filepath, 'a') #'a' is No-Overwrite mode. CMD-line args has a priority
-    
-    args = argdict_to_namespace(dynamicparser.arg_dict)
-    
-    if cfg_file_argname is not None:
-        setattr(args, cfg_file_argname, cfg_filepath)
-    
-    return args
 
 def print_config(cfg, path = None):
     if path == None:
