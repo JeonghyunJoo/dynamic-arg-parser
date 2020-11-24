@@ -3,7 +3,6 @@ Created on Nov 13, 2020
 
 @author: jhjoo
 '''
-import jsonargparse
 import argparse
 import yaml
 
@@ -59,7 +58,7 @@ def type_consistency(typ1, typ2):
         return 'list_' + unified_terminal_typ
     return unified_terminal_typ
         
-class SimpleArgumentParser():
+class DynamicArgumentParser():
     converters = {
         'list_int' : int,
         'int' : int,
@@ -78,7 +77,7 @@ class SimpleArgumentParser():
             unified_terminal_typ = None
             
             for e in v:
-                e, typ = SimpleArgumentParser._convert(e)
+                e, typ = DynamicArgumentParser._convert(e)
                 
                 unified_terminal_typ = type_consistency(unified_terminal_typ, typ) if unified_terminal_typ else typ
                     
@@ -108,7 +107,7 @@ class SimpleArgumentParser():
 
     def __init__(self, baseparser = None, check_type_consistency = True):
         # - check_type_consistency : Check whether a data type is matched for the same argument
-        super(SimpleArgumentParser, self).__init__()
+        super(DynamicArgumentParser, self).__init__()
         if baseparser is None:
             self.baseparser =  argparse.ArgumentParser()
         else:
@@ -190,7 +189,7 @@ class SimpleArgumentParser():
         with open(file, 'r') as f:
             cfg = yaml.load(f, Loader=yaml.FullLoader)
         
-        arg_dict = SimpleArgumentParser.dict_to_arg_dict(cfg, arg_dict = {})
+        arg_dict = DynamicArgumentParser.dict_to_arg_dict(cfg, arg_dict = {})
         
         self.update(arg_dict, add_mode == 'o')
         
@@ -200,7 +199,7 @@ class SimpleArgumentParser():
             self.arg_dict = {}
         
         base_args, arguments_yet_to_be_parsed = self.baseparser.parse_known_args(cmd_line_args)
-        arg_dict = SimpleArgumentParser.dict_to_arg_dict(base_args.__dict__, arg_dict = {})
+        arg_dict = DynamicArgumentParser.dict_to_arg_dict(base_args.__dict__, arg_dict = {})
         argname = None
         argvalue = []
         
@@ -329,16 +328,16 @@ def parse_argument(staticparser = None, cfg_file_argname = None, cmd_line_args =
         cfg_filepath = vars(cfg_filepath_args)[cfg_file_argname]
      
     #Create a parser instance
-    simpleparser = SimpleArgumentParser(staticparser)
+    dynamicparser = DynamicArgumentParser(staticparser)
 
     #Parse command-line arguments
-    simpleparser.parse_cmd_line_args(rem_cmd_line_args)
+    dynamicparser.parse_cmd_line_args(rem_cmd_line_args)
     
     if cfg_filepath is not None:
         #Load arguments from the configuration file
-        simpleparser.parse_config_file(cfg_filepath, 'a') #'a' is No-Overwrite mode. CMD-line args has a priority
+        dynamicparser.parse_config_file(cfg_filepath, 'a') #'a' is No-Overwrite mode. CMD-line args has a priority
     
-    args = argdict_to_namespace(simpleparser.arg_dict)
+    args = argdict_to_namespace(dynamicparser.arg_dict)
     
     if cfg_file_argname is not None:
         setattr(args, cfg_file_argname, cfg_filepath)
@@ -368,7 +367,7 @@ def print_config(cfg, path = None):
 #         cfg_filepath = cfg_filepath_args.__dict__.get(cfg_file_argname)
 #     
 #     #Create a parser instance
-#     simpleparser = SimpleArgumentParser(staticparser)
+#     simpleparser = DynamicArgumentParser(staticparser)
 #     
 #     #Parse command-line arguments
 #     simpleparser.parse_cmd_line_args(rem_cmd_line_args)
@@ -394,7 +393,7 @@ def print_config(cfg, path = None):
 #  
 #         return parser
 #     
-#     dynamic_parser = build_dynamic_parser(simpleparser.arg_dict, SimpleArgumentParser.converters)
+#     dynamic_parser = build_dynamic_parser(simpleparser.arg_dict, DynamicArgumentParser.converters)
 #     if cfg_filepath is not None:
 #         dynamic_parser.add_argument("-"+cfg_file_argname, "--"+cfg_file_argname, action=jsonargparse.ActionConfigFile)
 #     
