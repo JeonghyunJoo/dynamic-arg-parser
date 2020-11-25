@@ -3,7 +3,6 @@ Created on Nov 13, 2020
 
 @author: jhjoo
 '''
-import argparse
 import yaml
 import sys
 
@@ -104,7 +103,7 @@ class DynamicArgumentParser():
                     pass
             return v, 'str'
         else:
-            raise Exception(f"Can not handle the conversion of the type {type(v)}")
+            raise Exception("Can not handle the conversion of the type {}".format(type(v)))
 
     def __init__(self, staticparser = None, check_type_consistency = True):
         # - check_type_consistency : Check whether a data type is matched for the same argument
@@ -152,19 +151,19 @@ class DynamicArgumentParser():
                         typ = type_consistency(typ1, typ2)
                     except KeyError:
                         #it happens when one type is 'dict' and the other type is 'dictionary'
-                        msg = f"Type Consistency check Error\n"\
+                        msg = "Type Consistency check Error\n"\
                                "If you want to overwrite the argument value anyway, then set 'check_type_consistency = Fasle'\n"\
                                "Error Caused by:\n"
                         if typ2 == 'dict':
-                            msg += f"{arg} can not be extended, because the terminal value {value} is already assigned"
+                            msg += "{} can not be extended, because the terminal value {value} is already assigned".format(arg)
                         elif typ1 == 'dict':
-                            msg += f"The terminal value {v[0]} can not be assigned to {arg}, because it has its children"
+                            msg += "The terminal value {} can not be assigned to {}, because it has its children".format(v[0], arg)
                         raise Exception(msg)
                     except Exception:
-                        msg = f"Type Consistency check Error\n"\
+                        msg = "Type Consistency check Error\n"\
                                "If you want to overwrite the argument value anyway, then set 'check_type_consistency = Fasle'\n"\
                                "Error Caused by:\n"
-                        raise Exception(f"Contradictory types {typ1} and {typ2} for {arg}")
+                        raise Exception("Contradictory types {} and {} for {}".format(typ1,  typ2, arg))
                         
                 if overwrite:
                     value = v[0]
@@ -198,7 +197,7 @@ class DynamicArgumentParser():
             self.arg_dict = {}
         
         if args is None:
-            args = _sys.argv[1:]
+            args = sys.argv[1:]
         
         if self.staticparser is not None:
             static_args, args = self.staticparser.parse_known_args(args)
@@ -213,10 +212,10 @@ class DynamicArgumentParser():
             self.arg_dict = {}
         
         if args is None:
-            args = _sys.argv[1:]
+            args = sys.argv[1:]
         
         arg_dict = {}
-        
+        argvalue = []
         argname = None
         for arg in args + ["-"]: #Append a dummy argument to make the logic simple
             if arg.startswith(("-", "--")):
@@ -248,7 +247,7 @@ class DynamicArgumentParser():
 
     def parse_argument(self, args = None, cfgfile_arg = ''):
         if args is None:
-            args = _sys.argv[1:]
+            args = sys.argv[1:]
         
         #renew old parsing results and parse command line arguments with a static parser 
         args_yet_to_be_parsed = self.static_parse_cmd_args(args, add_mode = 'n')
@@ -256,36 +255,141 @@ class DynamicArgumentParser():
         #handle arguments unrecognized by the static parser
         self.dynamic_parse_cmd_args(args_yet_to_be_parsed, add_mode = 'a')
         
-        if cfgfile_arg is not '' and cfgfile_arg in self.arg_dict:
-            cfg_filepath = self.arg_dict.get(cfgfile_arg)
+        if cfgfile_arg != '' and cfgfile_arg in self.arg_dict:
+            cfg_filepath = self.arg_dict.get(cfgfile_arg)[0]
             
-            if os.path.exists(cfg_filePath):
-                #Load arguments from the configuration file
-                self.parse_config_file(cfg_filepath, 'a') #'a' is No-Overwrite mode. CMD-line args has a priority
-    
-        args_namespace = argdict_to_namespace(self.arg_dict)
-    
-        return args_namespace
-    
-from types import SimpleNamespace
-
-class Namespace(SimpleNamespace):
-    def __init__(self):
-        super(Namespace, self).__init__()
+            #Load arguments from the configuration file
+            self.parse_config_file(cfg_filepath, 'a') #'a' is No-Overwrite mode. CMD-line args has a priority
+       
+        def convert_2_recursive_dict(arg_dict):
+            root_dir = {}
+            for k in sorted(arg_dict.keys()):
+                v, _ = arg_dict[k] #Drop type information
+                key_chain = k.split('.')
+                
+                def get_parent_dict(keys, parent):
+                    if len(keys) == 1:
+                        return parent
+                    else:
+                        return get_parent_dict(keys[1:], parent[keys[0]])
+                
+                p_dict = get_parent_dict(key_chain, root_dir)
+                p_dict[key_chain[-1]] = {} if isinstance(v, dict) else v
+            
+            return root_dir
         
+        rdict = convert_2_recursive_dict(self.arg_dict)
+        
+        #args_namespace = argdict_to_namespace(self.arg_dict)
+        
+        args_tree = Node(rdict)
+        args_tree.activate(True)
+        
+        return args_tree#args_namespace
+    
+class Node():
+    def __init__(self, arg_dict, p = None, activate = False):
+        super(Node, self).__init__()
+        
+        self._mem_parent = p
+        self._mem_children = {}
+        
+        self._mem_activate = activate
+        self._mem_arg_dict = {} #key: arg name , value: {value: arg value, ref_count: ref count}
+         
+        self._mem_absorbing_node = NoneLike(self)
+        self._mem_key_chain_buffer = []
+        
+        self._mem_build(arg_dict)
+    
+    #def asdict(self):
+    def todict(self, include_ref_count = False):
+        root_dir = {}
+        for k,v in self._mem_arg_dict.items():
+            if include_ref_count:
+                root_dir[k] = (v['value'], v['ref_count'])
+            else:
+                root_dir[k] = v['value']
+        
+        for k,v in self._mem_children.items():
+            root_dir[k] = v.todict(include_ref_count)
+        
+        return root_dir
+    
+    def activate(self, v = True):
+        self._mem_activate = v
+        for c in self._mem_children.values():
+            c.activate(v)
+    
+    def trim(self, min_ref_count = 1):
+        del_keys = []
+        for k,v in self._mem_arg_dict.items():
+            if v['ref_count'] < min_ref_count:
+                del_keys.append(k)
+        
+        for k in del_keys:
+            del self._mem_arg_dict[k]
+        
+        del_keys = []
+        for k, c in self._mem_children.items():
+            if c.trim(min_ref_count) is None:
+                del_keys.append(k)
+        
+        for k in del_keys:
+            del self._mem_children[k]
+        
+        if len(self._mem_arg_dict) + len(self._mem_children) == 0:
+            return None
+        else:
+            return self
+        
+        
+    
+    def _mem_build(self, arg_dict):
+        for k,v in arg_dict.items():
+            setattr(self, k, v)   
+    
+    def __setattr__(self, key, value):
+        if key.startswith('_mem_'):
+            super().__setattr__(key, value)
+        else:
+            if isinstance(value, dict):
+                self._mem_children[key] = Node(value, self, activate = self._mem_activate) 
+            else: #terminal type
+                if key in self._mem_arg_dict:
+                    self._mem_arg_dict[key]['value'] = value
+                else:
+                    self._mem_arg_dict[key] = {'value': value, 'ref_count' : 0}
+                self._mem_stack_ref_count(key)
+#                setattr(self._mem_arg_namespace, key, value)
+    
     def __getattr__(self, key):
-        try:
-            value = getattr(super, key)
-            return value
-        except AttributeError:
-            return NoneLike()
-##        if key in self:
-#        return getattr(self, key)
-#        return NoneLike()
+        if key in self._mem_children:
+            return self._mem_children[key]
+        elif key in self._mem_arg_dict:
+            self._mem_stack_ref_count(key)
+            return self._mem_arg_dict[key]['value']#getattr(self._mem_arg_namespace, key)            
+        else:
+            self._mem_reset_key_chain_buffer()
+            self._mem_append_key_chain_buffer(key)
+            return self._mem_absorbing_node
+    
+    def _mem_stack_ref_count(self, key):
+        additional_ref_count = 1 if self._mem_activate else 0
+        
+        self._mem_arg_dict[key]['ref_count'] = self._mem_arg_dict[key]['ref_count'] + additional_ref_count 
 
+    def _mem_reset_key_chain_buffer(self):
+        self._mem_key_chain_buffer = []
+    
+    def _mem_append_key_chain_buffer(self, key):
+        self._mem_key_chain_buffer.append(key)
+        
 class NoneLike():
-    def __init__(self):
+    #Member = ['_momp']
+    def __init__(self, p):
         super(NoneLike, self).__init__()
+        self._mem_p = p
     
     def __bool__(self):
         return False
@@ -296,117 +400,29 @@ class NoneLike():
     def __eq__(self, other):
         return (other is None) or isinstance(other, NoneLike)
     
-    
     def __getattr__(self, key):
-        return NoneLike()
-
-def add_value_to_namespace(key, value, basenamespace):
-    if len(key) == 1:
-        key = key[0]
-        setattr(basenamespace, key, value)
-        return
-    add_value_to_namespace(key[1:], value, getattr(basenamespace, key[0]))
+        self._mem_p._mem_append_key_chain_buffer(key)
+        return self
     
-def argdict_to_namespace(arg_dict):
-    #arg_dict := {argname: (argvalue, type)}
-    root = Namespace()
-    for k in sorted(arg_dict.keys()):
-        value, typ = arg_dict[k]
-        keys = k.split('.')
-        if isinstance(value, dict):
-            add_value_to_namespace(keys, Namespace(), root)    
+    def __setattr__(self, key, value):
+        if key.startswith('_mem_'):
+            super().__setattr__(key, value)
         else:
-            add_value_to_namespace(keys, value, root)    
-    #from arg_dict
-    return root
+            root_dict = {}
+            ptr = root_dict
+            for k in self._mem_p._mem_key_chain_buffer[1:]:
+                ptr[k] = {}
+                ptr = ptr[k]
+                
+            ptr[key] = value
+            root_key = self._mem_p._mem_key_chain_buffer[0]
+            
+            setattr(self._mem_p, root_key, root_dict)
+        
 
-def namespace_to_dict(namespace):
-    dic = {}
-    for k, v in vars(namespace).items():
-        if isinstance(v, Namespace):
-            dic[k] = namespace_to_dict(v)
-        else:
-            dic[k] = v
-    return dic
-    
-
-class Wrapper():
-    def __init__(self, instance):
-        super(Wrapper, self).__init__()
-        self.instance_ = instance
-    
-    def __getattr__(self, key):
-        return getattr(self.instance_, key, NoneLike())
-    
-    def __str__(self):
-        return str(self.instance_)
-
-def print_config(cfg, path = None):
+def print_config(args, path = None):
     if path == None:
-        print(yaml.dump(namespace_to_dict(cfg), sort_keys=True))
+        print(yaml.dump(args.todict(), sort_keys=True))
     else:
         with open(path, 'w') as f:
-            yaml.dump(namespace_to_dict(cfg), f, sort_keys=True)
-
-#def save_config(path, cfg):
-    
-
-# def parse_argument(staticparser = None, cfg_file_argname = None, cmd_line_args = None):
-#     cfg_filepath = None
-#     
-#     rem_cmd_line_args = cmd_line_args
-#     if cfg_file_argname is not None:
-#         #the configuration file path parser
-#         cfg_filepath_parser = argparse.ArgumentParser()
-#         cfg_filepath_parser.add_argument("-"+cfg_file_argname, "--"+cfg_file_argname, type=str, required = True)
-#         cfg_filepath_args, rem_cmd_line_args = cfg_filepath_parser.parse_known_args(cmd_line_args)
-#         #Read the configuration file path
-#         cfg_filepath = cfg_filepath_args.__dict__.get(cfg_file_argname)
-#     
-#     #Create a parser instance
-#     simpleparser = DynamicArgumentParser(staticparser)
-#     
-#     #Parse command-line arguments
-#     simpleparser.parse_cmd_line_args(rem_cmd_line_args)
-#     
-#     if cfg_filepath is not None:
-#         #Load arguments from the configuration file
-#         simpleparser.parse_config_file(cfg_filepath, 'a') #'a' is No-Overwrite mode. CMD-line args has a priority
-#     
-#     print(simpleparser.arg_dict)
-#     def build_dynamic_parser(arg_dict, converters):
-#         #converters: dictionary of (key: type string, value: converter function)
-#         parser = jsonargparse.ArgumentParser()
-#  
-#         for arg, (v, typ) in arg_dict.items():
-#             converter = converters.get(typ, None)
-#  
-#             if v is None:
-#                 parser.add_argument('-'+arg, '--'+arg, dest=arg, action = 'store_true')
-#             elif isinstance(v, list):
-#                 parser.add_argument('-'+arg, '--'+arg, type=converter, nargs='+') 
-#             else:
-#                 parser.add_argument('-'+arg, '--'+arg, type=converter) 
-#  
-#         return parser
-#     
-#     dynamic_parser = build_dynamic_parser(simpleparser.arg_dict, DynamicArgumentParser.converters)
-#     if cfg_filepath is not None:
-#         dynamic_parser.add_argument("-"+cfg_file_argname, "--"+cfg_file_argname, action=jsonargparse.ActionConfigFile)
-#     
-#     args = dynamic_parser.parse_args(cmd_line_args)
-# 
-#     
-#     def wrapup_namespace(instance, wrapper):
-#         import types
-#         if isinstance(instance, types.SimpleNamespace):
-#             dic = instance.__dict__
-#             for k in dic.keys():
-#                 #dic[k] = dic[k]
-#                 dic[k] = wrapup_namespace(dic[k], wrapper)
-#             return wrapper(instance)#wrapper(instance)
-#         return instance
-# 
-#     args = wrapup_namespace(args, Wrapper)
-#     
-#     return args
+            yaml.dump(args.todict(), f, sort_keys=True)
