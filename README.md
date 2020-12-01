@@ -21,7 +21,7 @@ import argparse
 staticparser = argparse.ArgumentParser()
 dynamicparser = DynamicArgumentParser(staticparser = staticparser)
 ```
-### Usage
+### methods
 ```python
 args = dynamicparser.parse_argument() #Parse arguments
 args = dynamicparser.parse_argument(config_args = "conf") #Parse arguments. This will load arguments from the file_path given by '--conf file_path'
