@@ -1,0 +1,16 @@
+Metadata-Version: 1.2
+Name: dynamicargparse
+Version: 1.1
+Summary: Python Dynamic Argument Parser
+Home-page: https://github.com/JeonghyunJoo/dynamic-arg-parser
+Author: Jeonghyun Joo
+Author-email: jhjoo.root@gmail.com
+License: UNKNOWN
+Download-URL: https://github.com/JeonghyunJoo/archive/1.0.tar.gz
+Description: UNKNOWN
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3.5
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Requires-Python: >=3.5

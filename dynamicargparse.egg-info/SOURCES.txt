@@ -1,0 +1,10 @@
+README.md
+__init__.py
+dynamicargparse.py
+setup.cfg
+setup.py
+dynamicargparse.egg-info/PKG-INFO
+dynamicargparse.egg-info/SOURCES.txt
+dynamicargparse.egg-info/dependency_links.txt
+dynamicargparse.egg-info/requires.txt
+dynamicargparse.egg-info/top_level.txt

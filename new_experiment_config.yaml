@@ -1,4 +1,0 @@
-conf: save_file_path.yaml
-lr: 0.5
-model: resnet18
-optimizer: adam
