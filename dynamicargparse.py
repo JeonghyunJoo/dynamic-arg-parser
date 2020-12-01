@@ -422,7 +422,7 @@ class AugmentedNameSpace():
             self._mem_parent._get_key_chain( self._mem_key_chain_buffer )
             self._mem_key_chain_buffer.append(key)
             
-            print(f"Warning: You just tried to assign the value '{value}' to '{'.'.join(self._mem_key_chain_buffer)}', which is already taken by AugmentedNamespace node.",
+            print("Warning: You just tried to assign the value '{}' to '{}', which is already taken by AugmentedNamespace node.".format(value, '.'.join(self._mem_key_chain_buffer)),
                   "This attempt will be ignored")
             return
             #raise Exception("It tries to assign a value by replacing AugmentedNode")
