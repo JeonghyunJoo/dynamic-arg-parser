@@ -1,0 +1,3 @@
+lr: 0.1
+model: resnet18
+optimizer: adam

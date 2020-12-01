@@ -1,0 +1,4 @@
+model: resnet18
+optim:
+  lr: 0.001
+  name: sgd

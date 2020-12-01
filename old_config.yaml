@@ -1,0 +1,6 @@
+model: resnet18
+optim:
+  lr: 0.001
+  betas:
+    - 0.99
+    - 0.999

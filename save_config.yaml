@@ -1,0 +1,9 @@
+conf: example.yaml
+dataset: cifar10
+model: resnet18
+optimizer:
+  betas:
+  - 0.99
+  - 0.998
+  lr: 0.005
+  name: adam

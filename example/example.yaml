@@ -1,0 +1,8 @@
+model: resnet18
+dataset: cifar10
+optimizer:
+  name: adam
+  lr: !!float 5e-3
+  betas:
+    - 0.99
+    - 0.998
