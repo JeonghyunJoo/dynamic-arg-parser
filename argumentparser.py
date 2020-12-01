@@ -5,7 +5,8 @@ Created on Nov 13, 2020
 '''
 import yaml
 import sys
-
+import itertools
+        
 def bool_converter(s):
     if isinstance(s, str):
         s = s.lower()
@@ -167,15 +168,11 @@ class DynamicArgumentParser():
                         
                 if overwrite:
                     value = v[0]
-                    #elf.arg_dict[arg] = v
-                
+                    
                 self.arg_dict[arg] = (value, typ)
             else:
                 self.arg_dict[arg] = v
         
-#        for arg, v in filtered:
-#            self.arg_dict[arg] = v
-    
     #add_mode:
     # - 'o' : Overwrite if a new value is given for the existing argument
     # - 'a' : Add values only for new values
@@ -217,7 +214,7 @@ class DynamicArgumentParser():
         arg_dict = {}
         argvalue = []
         argname = None
-        for arg in args + ["-"]: #Append a dummy argument to make the logic simple
+        for arg in args + ["-"]: #Append a dummy argument to keep the logic simple
             if arg.startswith(("-", "--")):
                 if argname is not None:
                     v = None
@@ -238,8 +235,13 @@ class DynamicArgumentParser():
                         lastindex = lastindex + 1
 
                     arg_dict[argname] = (v, typ)
+                    
                 argname = arg.lstrip('-')
                 argvalue = []
+                assign_symbol = argname.find('=')
+                if assign_symbol != -1:
+                    argname, argvalue = argname[:assign_symbol], argname[assign_symbol+1:]
+                    argvalue = [x for x in argvalue.split(',') if len(x) > 0]
             else:
                 argvalue.append(arg)
         
@@ -282,34 +284,56 @@ class DynamicArgumentParser():
         
         #args_namespace = argdict_to_namespace(self.arg_dict)
         
-        args_tree = Node(rdict)
+        args_tree = AugmentedNameSpace(rdict)
         args_tree.activate(True)
         
         return args_tree#args_namespace
     
-class Node():
+class AugmentedNameSpace():
+    MEMBER_ATTRIBUTE = {'_mem_parent', '_mem_children', '_mem_activate', '_mem_argument_dict', '_mem_absorbing_node', '_mem_key_chain_buffer'}
+    
     def __init__(self, arg_dict, p = None, activate = False):
-        super(Node, self).__init__()
+        super(AugmentedNameSpace, self).__init__()
         
         self._mem_parent = p
         self._mem_children = {}
         
         self._mem_activate = activate
-        self._mem_arg_dict = {} #key: arg name , value: {value: arg value, ref_count: ref count}
+        self._mem_argument_dict = {} #key: arg name , value: {'value': value, 'ref_count': ref count}
          
         self._mem_absorbing_node = NoneLike(self)
         self._mem_key_chain_buffer = []
         
-        self._mem_build(arg_dict)
+        self._build(arg_dict)
     
+    
+    def keys(self):
+        return itertools.chain(self._mem_argument_dict.keys(), self._mem_children)
+    
+    def __getitem__(self, item):
+        if item in self._mem_argument_dict:
+            return self._mem_argument_dict[item]['value']
+        elif item in self._mem_children:
+            return self._mem_children[item].todict()
+        
+    def toyaml(self, save_path = None):
+        if save_path != None:
+            with open(save_path, 'w') as f:
+                yaml.dump(self.todict(), f, sort_keys=True)
+        else:            
+            yaml_str = yaml.dump(self.todict(), sort_keys=True)
+            return yaml_str
+        
+        
     #def asdict(self):
     def todict(self, include_ref_count = False):
         root_dir = {}
-        for k,v in self._mem_arg_dict.items():
+        for k,v in self._mem_argument_dict.items():
+            arg_value = v['value']
             if include_ref_count:
-                root_dir[k] = (v['value'], v['ref_count'])
+                root_dir[k] = (arg_value, v['ref_count']) 
             else:
-                root_dir[k] = v['value']
+                root_dir[k] = arg_value
         
         for k,v in self._mem_children.items():
             root_dir[k] = v.todict(include_ref_count)
@@ -323,12 +347,12 @@ class Node():
     
     def trim(self, min_ref_count = 1):
         del_keys = []
-        for k,v in self._mem_arg_dict.items():
+        for k,v in self._mem_argument_dict.items():
             if v['ref_count'] < min_ref_count:
                 del_keys.append(k)
         
         for k in del_keys:
-            del self._mem_arg_dict[k]
+            del self._mem_argument_dict[k]
         
         del_keys = []
         for k, c in self._mem_children.items():
@@ -338,51 +362,109 @@ class Node():
         for k in del_keys:
             del self._mem_children[k]
         
-        if len(self._mem_arg_dict) + len(self._mem_children) == 0:
+        if len(self._mem_argument_dict) + len(self._mem_children) == 0:
             return None
         else:
             return self
         
-        
-    
-    def _mem_build(self, arg_dict):
+    def _build(self, arg_dict):
         for k,v in arg_dict.items():
-            setattr(self, k, v)   
+            if isinstance(v, dict):
+                self._add_child(k, v)
+            else:
+                setattr(self, k, v)
+#            setattr(self, k, v)   
     
+    def _add_child(self, k, arg_dict):
+        self._mem_children[k] = AugmentedNameSpace(arg_dict, self, self._mem_activate)
+        
+    def __repr__(self, as_str = True):
+        root_dir = {}
+        for k,v in self._mem_argument_dict.items():
+            root_dir[k] = '(value: {}, ref_count: {})'.format(v['value'], v['ref_count'])  #('value: ' + str(arg_value), 'ref_count: ' + str(v['ref_count'])) 
+            
+        for k,v in self._mem_children.items():
+            root_dir[k] = v.__repr__(as_str = False)
+        
+        if as_str:
+            return str(root_dir)
+        else:
+            return root_dir
+        
+        #return str(self.todict(True))
+    
+    def _get_key_chain(self, key_chain = [], terminal_node = True):
+        assert isinstance(self._mem_key_chain_buffer[0], str)
+        key_chain.append( self._mem_key_chain_buffer[0] )
+        
+        if self._mem_parent is None:
+            return
+        else:
+            self._mem_parent._get_key_chain(key_chain, terminal_node = False)
+        
+        if terminal_node:
+            key_chain.reverse()
+        return
+
     def __setattr__(self, key, value):
-        if key.startswith('_mem_'):
+        if key in AugmentedNameSpace.MEMBER_ATTRIBUTE:
             super().__setattr__(key, value)
+            return
+        
+        #Should I check the type of value?
+        #The value should satisfy:
+        # it can be stored in yaml-format
+        # it can be recovered from yaml-format
+        #Otherwise, An error might occur when it is saved or it might be loaded from the saved file in a wrong way 
+        
+        if key in  self._mem_children:
+            self._mem_key_chain_buffer.clear()
+            self._mem_parent._get_key_chain( self._mem_key_chain_buffer )
+            self._mem_key_chain_buffer.append(key)
+            
+            print(f"Warning: You just tried to assign the value '{value}' to '{'.'.join(self._mem_key_chain_buffer)}', which is already taken by AugmentedNamespace node.",
+                  "This attempt will be ignored")
+            return
+            #raise Exception("It tries to assign a value by replacing AugmentedNode")
+        
+         #Handle argument assignment
+        if key not in self._mem_argument_dict:
+            self._mem_argument_dict[key] = {'value': value, 'ref_count': 0}
         else:
-            if isinstance(value, dict):
-                self._mem_children[key] = Node(value, self, activate = self._mem_activate) 
-            else: #terminal type
-                if key in self._mem_arg_dict:
-                    self._mem_arg_dict[key]['value'] = value
-                else:
-                    self._mem_arg_dict[key] = {'value': value, 'ref_count' : 0}
-                self._mem_stack_ref_count(key)
-#                setattr(self._mem_arg_namespace, key, value)
-    
+            self._mem_argument_dict[key]['value'] = value
+        
+        self._stack_ref_count(key)
+
+        
     def __getattr__(self, key):
+        if key in AugmentedNameSpace.MEMBER_ATTRIBUTE:
+            #Unreachable code. __getattribute__() should have handled this case as those attributes can be looked up through __dir__[key] 
+            raise Exception()
+            
         if key in self._mem_children:
+            #Go through deeper level
+            self._mem_key_chain_buffer.clear()
+            self._mem_key_chain_buffer.append(key) 
             return self._mem_children[key]
-        elif key in self._mem_arg_dict:
-            self._mem_stack_ref_count(key)
-            return self._mem_arg_dict[key]['value']#getattr(self._mem_arg_namespace, key)            
+        elif key in self._mem_argument_dict:
+            #The terminal value get return 
+            self._stack_ref_count(key)
+            return self._mem_argument_dict[key]['value']            
         else:
-            self._mem_reset_key_chain_buffer()
-            self._mem_append_key_chain_buffer(key)
+            #The referenced key does not exist in the namespace. Move to the absorbing state
+            self._clear_key_chain_buffer()
+            self._append_key_chain_buffer(key)
             return self._mem_absorbing_node
     
-    def _mem_stack_ref_count(self, key):
+    def _stack_ref_count(self, key):
         additional_ref_count = 1 if self._mem_activate else 0
         
-        self._mem_arg_dict[key]['ref_count'] = self._mem_arg_dict[key]['ref_count'] + additional_ref_count 
+        self._mem_argument_dict[key]['ref_count'] = self._mem_argument_dict[key]['ref_count'] + additional_ref_count 
 
-    def _mem_reset_key_chain_buffer(self):
-        self._mem_key_chain_buffer = []
+    def _clear_key_chain_buffer(self):
+        self._mem_key_chain_buffer.clear()
     
-    def _mem_append_key_chain_buffer(self, key):
+    def _append_key_chain_buffer(self, key):
         self._mem_key_chain_buffer.append(key)
         
 class NoneLike():
@@ -401,7 +483,7 @@ class NoneLike():
         return (other is None) or isinstance(other, NoneLike)
     
     def __getattr__(self, key):
-        self._mem_p._mem_append_key_chain_buffer(key)
+        self._mem_p._append_key_chain_buffer(key)
         return self
     
     def __setattr__(self, key, value):
@@ -417,12 +499,5 @@ class NoneLike():
             ptr[key] = value
             root_key = self._mem_p._mem_key_chain_buffer[0]
             
-            setattr(self._mem_p, root_key, root_dict)
-        
-
-def print_config(args, path = None):
-    if path == None:
-        print(yaml.dump(args.todict(), sort_keys=True))
-    else:
-        with open(path, 'w') as f:
-            yaml.dump(args.todict(), f, sort_keys=True)
+            self._mem_p._add_child(root_key, root_dict)
+            #setattr(self._mem_p, root_key, root_dict)
