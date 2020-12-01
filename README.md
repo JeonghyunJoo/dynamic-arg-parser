@@ -6,8 +6,11 @@ In the early stage of experiment design,
 Those call for the efficient way of **adopting arguments flexibly** and **keeping arguments** used by experiments **in a reusable way**.  
 dynamic-argu-parser aims to meet those goals.
 
-# Import
-### Object create
+# Installation
+```
+pip install dynamicargparse
+```
+### Import
 ```python
 from dynamicargparse import DynamicArgumentParser
 #Create an instance
@@ -220,7 +223,7 @@ Result:
 >> c == None True
 >> c is None False
 ```
-### You can find some more examples in the notebook, 'Example.ipynb'
+#### You can find some more examples in the example folder: a notebook file 'Example.ipynb', a python file 'Example.py'
 
 # What is the parsing rule used by 'Dynamic Argument Parser'?
 #### 1. Space splits each element
